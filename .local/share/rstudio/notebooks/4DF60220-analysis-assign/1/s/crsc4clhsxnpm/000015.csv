@@ -1,0 +1,5 @@
+"0","# make tumour vs control object"
+"0","tumour_v_ctrl <- results(dds, filterFun=ihw, alpha=0.05, c(""condition"", ""tumour"", ""control""))"
+"2","Error in results(dds, filterFun = ihw, alpha = 0.05, c(""condition"", ""tumour"",  : 
+  couldn't find results. you should first run DESeq()
+"

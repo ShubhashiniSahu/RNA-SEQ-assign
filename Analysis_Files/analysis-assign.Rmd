@@ -1,0 +1,480 @@
+---
+title: "RNA-Seq/assign"
+name: "Shubhashini Sahu"
+student ID: "23103539"
+github link: "https://github.com/ShubhashiniSahu/RNA-SEQ-assign.git"
+output: html_document
+date: "2023-11-17"
+---
+
+#uploading libraries 
+```{r}
+library(dplyr)
+library(biomaRt)
+library(tximport)
+library(rhdf5)
+library(gplots)
+library(org.Hs.eg.db)
+library(DESeq2)
+library(DT)
+library(apeglm)
+library(RColorBrewer)
+library(IHW)
+library(PCAtools)
+library(pheatmap)
+library(clusterProfiler)
+library(EnhancedVolcano)
+library(ComplexHeatmap)
+library(circlize)
+library(fgsea)
+library(tidyverse)
+library(ggpubr)
+```
+
+
+#files that are going to be used for the gene set enrichment analysis
+```{r}
+quant_dir <- "/home/rstudio"
+list.files(quant_dir)
+```
+
+
+#the file "samples.csv" contains the experimental metadata.
+```{r}
+samples <- read.csv(paste0(quant_dir, "/samples.csv"), header=T, row.names = "samples", stringsAsFactors = T)
+samples
+```
+
+
+#the output of the below code means that both the "condition" and "replicate" columns in the "samples" data frame are factors, as indicated by the "TRUE" values. 
+```{r}
+samples$replicates <- factor(samples$replicates)
+
+factor_cols <- sapply(samples, is.factor)
+factor_cols
+```
+
+##Stage kallisto files
+#constructing file paths and assigning names to the files based on the row names of a data frame.
+```{r}
+files <- file.path(quant_dir, rownames(samples), "abundance.tsv")
+names(files) <- paste0(rownames(samples))
+files
+```
+
+##Tximport
+#using the "useMart()" function from the "biomart"to create a connection to the Ensembl database. 
+#the "mart" object will hold a connection to the specified Ensembl dataset. This connection can then be used to query and retrieve various biological data related #to human genes from the Ensembl database.
+```{r}
+mart <- useMart(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+
+#The below code line is used to retrieve and display gene annotation information, specifically Ensembl transcript IDs and corresponding HGNC symbols, from an Ensembl database
+tx2gene <- getBM(attributes = c("ensembl_transcript_id_version", "hgnc_symbol"), mart = mart, useCache = FALSE)
+head(tx2gene)
+```
+
+#the code is essential for processing RNA-seq data, converting transcript-level quantification information into a format suitable for downstream analysis, and providing a quick overview of the processed gene-level abundance data
+```{r}
+txi <- tximport(files, type = "kallisto", tx2gene = tx2gene)
+head(txi$abundance)
+```
+
+#prepares the data for differential expression analysis by creating a DESeqDataSet object from the processed RNA-seq data (txi), sample metadata (samples), and an experimental design formula.
+```{r}
+dds <- DESeqDataSetFromTximport(txi, colData = samples, design = ~ replicates + condition)
+dds
+```
+
+
+#the below code is used to set the reference level for a categorical variable, perform differential expression analysis, and then retrieve the names of the results. The results can be further examined to identify genes that are differentially expressed between the specified conditions. The reference level setting is important for interpreting the results in the context of the specified experimental design.
+```{r}
+dds$condition <- relevel(dds$condition, ref = "control")
+dds <- DESeq(dds)
+resultsNames(dds)
+```
+
+
+#to obtain normalized gene expression values from a DESeq2 analysis. Normalized counts are essential for accurate and reliable comparisons of gene expression levels across different samples, enabling meaningful biological interpretations of the RNA-seq data.
+```{r}
+counts <- counts(dds, normalized=TRUE)
+counts
+```
+
+
+#generating mean-standard deviation (mean-sd) plots for visualizing the transformed gene expression data. 
+```{r}
+log2_counts <- assay(normTransform(dds))
+rld_counts <- assay(rlog(dds))
+
+library(vsn)
+library(hexbin)
+
+## x-axis is the transformed mean not the raw mean.
+
+log2_plt <- meanSdPlot(log2_counts, ranks=FALSE, plot=FALSE)
+log2_plt$gg + ggtitle("Log2 + PC Transformation") + xlim(0,20)
+
+rld_plt <- meanSdPlot(rld_counts, ranks=FALSE, plot=FALSE)
+rld_plt$gg + ggtitle("Rlog Transformation") + xlim(0,20)
+```
+#the figure above, plots the standard deviation of the transformed data, acrosss samples, against the mean using the logarithm transformation and the regularised log transformation.The shifted logarithm has elevated standard deviation in the lower count range, and the regularized log to a lesser extent.
+
+
+
+#performing the output, specifically writing the gene expression data to text files.
+```{r}
+#dir.create("/home/rstudio/counts")
+write.table(counts, "normalised_counts.txt", sep="\t", quote = F)
+write.table(log2_counts, "log2_counts.txt", sep="\t", quote = F)
+```
+
+
+
+#this code performs hierarchical clustering based on sample distances and generates a heatmap with annotated samples, where colors represent different experimental conditions ("tumour" and "control"). The heatmap provides a visual representation of the relationships and similarities between the samples based on their gene expression profiles.
+```{r}
+## Calculate distance between samples
+sampleDists <- dist(t(rld_counts))
+
+## Place distances in matrix
+sampleDistMatrix <- as.matrix(sampleDists)
+
+## Optional, remove colnames
+colnames(sampleDistMatrix) <- NULL
+
+## create annotation dataframe
+ann <- data.frame(Condition = samples$condition)
+
+col <- c("forestgreen", "red1")
+names(col) <- c("tumour", "control")
+ann_col <- list(Condition = col)
+
+## match annotation rownames to distance mat
+rownames(ann) <- rownames(sampleDistMatrix)
+
+pheatmap(mat=sampleDistMatrix,
+         ## pass distance metric calculated to heatmap
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         ## pass annotation dataframe 
+         annotation_col = ann,
+         ## add colors
+         annotation_colors = ann_col,
+         ## heatmap colours
+         col=hcl.colors(100,"GnBu",rev=T))
+```
+#in the above plot, darker color indicate the higher values and lighter color indicate the lighter values. 
+
+
+##the PCA plot
+#the pca plot, which showsthe samples in the 2D plane by their first two principal components. In the plot below we can see that samples from the control groups cluster loosely together and that  of the tumour samples are free in PC1/PC2.
+```{r}
+p <- pca(rld_counts, metadata = samples)
+
+biplot(p,
+       colby = 'condition',
+       colkey = c('control'='red1', 'tumour'='forestgreen'),
+       hline = 0,
+       vline = 0,
+       legendPosition = 'right',
+       legendLabSize = 12,
+       legendIconSize = 8.0,
+       title = 'PCA bi-plot',
+       subtitle = 'PC1 versus PC2')
+```
+
+
+#code is for the filtering and shrinking log-fold changes.
+```{r}
+# make tumour vs control object
+tumour_v_ctrl <- results(dds, filterFun=ihw, alpha=0.05, c("condition", "tumour", "control"))
+res1 <- lfcShrink(dds=dds, res=tumour_v_ctrl, coef=4, type="apeglm")
+summary(res1)
+```
+#the output of above code gives following information:-
+There were 21,474 items in the analysis with nonzero total read count.
+Genes with an adjusted p-value less than 0.05 are considered statistically significant.
+269 genes (1.3%) show increased expression (LFC > 0, labeled as "up").
+199 genes (0.93%) show decreased expression (LFC < 0, labeled as "down").
+No outliers were identified based on the specified criteria (out of 21,474).
+
+
+
+#Releveling the 'condition' variable and rerunning DESeq effectively produces a new baseline for comparison (control serves as the reference level) for the study. Because the log-fold changes and statistical tests are now based on the "control" group, this can be significant for interpreting the results.
+```{r}
+# to make tumour vs control re level the dds object reference level and redo the DESeq call
+dds$condition <- relevel(dds$condition, ref = "control")
+dds <- DESeq(dds)
+
+# double check it worked
+resultsNames(dds)
+```
+
+
+##Extract Up Regulated Genes
+```{r}
+get_upregulated <- function(df){
+	key <- intersect(rownames(df)[which(df$log2FoldChange>=1)], rownames(df)[which(df$pvalue<=0.05)])
+  results <- as.data.frame((df)[which(rownames(df) %in% key),])
+	return(results)
+}
+```
+
+##Extract Down Regulated genes
+```{r}
+get_downregulated <- function(df){
+  	key <- intersect(rownames(df)[which(df$log2FoldChange<=-1)], rownames(df)[which(df$pvalue<=0.05)])
+  	results <- as.data.frame((df)[which(rownames(df) %in% key),])
+  	return(results)
+}
+```
+
+##Annotate DE genes
+```{r}
+annotate_de_genes <- function(df){
+
+    df$hgnc_symbol <- rownames(df)
+    mart <- useMart(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+    info <- getBM(attributes=c("hgnc_symbol",
+                               "ensembl_gene_id_version",
+                               "chromosome_name",
+                               "start_position",
+                               "end_position",
+                               "strand",
+                               "entrezgene_description"),
+                  filters = c("hgnc_symbol"),
+                  values = df$hgnc_symbol,
+                  mart = mart,
+                  useCache=FALSE)
+
+    tmp <- merge(df, info, by="hgnc_symbol")
+    tmp$strand <- gsub("-1", "-", tmp$strand)
+    tmp$strand <- gsub("1", "+", tmp$strand)
+    tmp$hgnc_symbol <- make.names(tmp$hgnc_symbol, unique = T)
+    tmp <- tmp[!grepl("CHR", tmp$chromosome_name),]
+
+    output_col <- c("Gene", "Ensembl ID", "Chromosome", "Start", "Stop", "Strand", "Description", "Log2FC", "P-value", "Adj P-value")
+    tmp <- subset(tmp, select=c(hgnc_symbol, ensembl_gene_id_version, chromosome_name, start_position, end_position, strand, entrezgene_description, log2FoldChange, pvalue, padj))
+    colnames(tmp) <- output_col
+
+    if(min(tmp$Log2FC) > 0){
+        tmp <- tmp[order(-tmp$Log2FC),]
+    }else{
+        tmp <- tmp[order(tmp$Log2FC),]
+    }
+
+    return(tmp)
+
+}
+```
+
+
+#Up -regulated and down regulated genes
+```{r}
+de_up <- get_upregulated(as.data.frame(res1))
+de_down <- get_downregulated(as.data.frame(res1))
+upregulated_genes <- annotate_de_genes(de_up)
+downregulated_genes <- annotate_de_genes(de_down)
+
+#confirm these worked
+head(upregulated_genes)
+head(downregulated_genes)
+```
+
+
+
+```{r}
+#dir.create("/home/rstudio/DESeq_results/")
+write.table(upregulated_genes, "tumour_vs_control_upregulated.txt", sep="\t", row.names=F, quote=F)
+write.table(downregulated_genes, "tumour_vs_control_downregulated.txt", sep="\t", row.names=F, quote=F)
+```
+
+
+##Volcano plot
+#the volcano plot is a type of scatter plot and is used to show how many genes are differentially expressed. It shows the statistical significance(P value) versus magnitude of change(fold change).It enables quick visual identification of genes with large fold changes that are also statistically significant.
+```{r}
+## remove NA values from results
+res1 <- na.omit(res1)
+
+## Min/max axis values for plot
+min_width <- min(res1$log2FoldChange)
+max_width <- max(res1$log2FoldChange)
+max_height <- -log10(min(res1[res1$pvalue>0, 5]))
+
+## Grab top 10 up-reg genes for plot
+up <- subset(res1, res1$log2FoldChange > 1 & res1$pvalue <= 0.05)
+up <- up[order(-up$log2FoldChange),]
+up_list <- head(rownames(up), n=10L)
+
+## Grab top 10 down-reg genes for plot
+down <- subset(res1, res1$log2FoldChange < -1 & res1$pvalue <= 0.05)
+down <- down[order(down$log2FoldChange),]
+down_list <- head(rownames(down), n=10L)
+
+## place top 20 DE genes in vector
+plot_top_20 <- c(up_list, down_list)
+
+EnhancedVolcano(res1,
+                lab=rownames(res1),
+                x="log2FoldChange",
+                y="pvalue",
+                selectLab=plot_top_20,
+                drawConnectors=TRUE,
+                legendPosition = "none",
+                FCcutoff=1.0,
+                pCutoff=0.05,
+                title="Volcano Plot",
+                subtitle="Tumour vs. Control",
+                caption = paste0('Total Genes = ', nrow(res1)),
+                xlim=c(min_width, max_width),
+                ylim=c(0, max_height))
+```
+#in the volcano plot, the most upregulated genes are towards the right, the most downregulated genes are towards the left, and the most statistically significant genes are towards the top.In the plot above the genes are coloured if they pass the thresholds for FDR and Log Fold Change, red if they are upregulated and blue if they are downregulated.
+
+
+##Heatmap
+#the output of the below code shows the expression of up- and down- regulated genes. 
+```{r}
+# subset the counts matrix to get the lung and control samples
+subset <- rld_counts[, 1:6]
+
+# now select de_up, de_down, i.e DE genes that passed the filtering our function produced
+up <- rownames(de_up)
+down <- rownames(de_down)
+
+# subset matrix to include only DE genes
+key <- c(up, down)
+subset <- subset[which(rownames(subset) %in% key),]
+
+# scale and center the values
+mat <- as.matrix(scale(t(subset), center = T))
+
+# basic plot to check we're plotting something sensible
+# pheatmap(t(mat))
+
+# spruce it up a bit..
+ann <- data.frame(Condition = c(rep("Control", 3), rep("Tumour", 3)))
+rownames(ann) <- rownames(mat)
+col <- c("blue", "forestgreen")
+names(col) <- c("Control", "Tumour")
+ann_col <- list(Condition = col)
+
+pheatmap(t(mat), 
+         show_rownames = FALSE,
+         annotation_col = ann,
+         annotation_colors = ann_col,
+         color = hcl.colors(100, "PRGn",rev=F))
+```
+#the code takes a subset of the counts matrix, identifies differentially expressed genes, scales and centers the expression values, and then creates a heatmap with customized annotations and colors to visualize the expression patterns in control and tumour samples.
+
+
+##FGSEA
+#It is used in the GSEA to rank genes based on their differential expression and the genes are ranked based on their association with a phenotype, and enrichment of gene sets.
+```{r}
+## convert result object to dataframe
+res <- as.data.frame(res1) #tumour vs control
+res$hgnc_symbol <- rownames(res)
+
+# compute summary stat
+fgsea_rank <- res %>%
+              dplyr::select(hgnc_symbol, log2FoldChange) %>%
+              na.omit() %>%
+              distinct() %>%
+              group_by(hgnc_symbol) %>%
+              summarize(stat=mean(log2FoldChange))
+
+fgsea_rank
+```
+
+
+
+#in this, the list is convert to the named list
+```{r}
+# create named list
+rank <- deframe(fgsea_rank)
+head(rank, 20)
+```
+
+
+##read the GMT file
+```{r}
+# read in gmt file
+pathway <- gmtPathways("/home/rstudio/c6.all.v2023.2.Hs.symbols.gmt")
+head(pathway, 1)
+```
+
+
+#in the result, the table includes information about gene sets, enrichment scores, and adjusted p-values, providing a snapshot of the enrichment results for the given gene sets in the analyzed data.
+```{r}
+# run fgsea
+fgsea <- fgsea(pathways=pathway, stats=rank, nperm=1000)
+
+fgseaResTidy <- fgsea %>%
+  as_tibble() %>%
+  arrange(desc(NES))
+
+# Show in a nice table:
+fgseaResTidy %>%
+  dplyr::select(-leadingEdge, -ES, -nMoreExtreme) %>%
+  arrange(padj) %>%
+  DT::datatable()
+```
+
+
+##Enrichment plots
+```{r}
+filtered_pathway <- subset(fgsea, NES > 1.8)
+filtered_pathway
+```
+
+#The above code filters pathways or gene sets based on a Normalized Enrichment Score (NES) threshold. Specifically, it selects pathways with a NES greater than 1.8.
+#The NES is a measure used in gene set enrichment analysis (GSEA) to assess whether a predefined set of genes shows statistically significant, concordant differences between two biological states.
+#By setting the threshold at 1.8, the code is focusing on pathways that exhibit strong positive enrichment in the analyzed data and gives the enrichment plots.
+    
+    
+```{r}
+filt_up <- as.vector(filtered_pathway$pathway)
+
+for (i in filt_up){
+    plt <- plotEnrichment(pathway = pathway[[i]],
+    gseaParam = 1, ticksSize = 0.5, stats= rank) +
+    labs(title=i) + theme(plot.title = element_text(hjust = 0.5, face="bold"))
+    print(plt)
+}
+```
+#In the context of GSEA, a positive NES indicates enrichment of the gene set in the condition of interest. In simpler terms, it suggests that the genes in the predefined set are collectively upregulated or positively associated with the experimental condition being studied.
+
+
+
+```{r}
+filtered_pathway <- subset(fgsea, NES < -1.5)
+filtered_pathway
+```
+#The code filters pathways or gene sets based on a Normalized Enrichment Score (NES) threshold. Specifically, it selects pathways with a NES less than -1.5.By setting the threshold at -1.5, the code is focusing on pathways that exhibit strong negative enrichment in the analyzed data.
+
+```{r}
+filt_down <- as.vector(filtered_pathway$pathway)
+
+for (i in filt_down){
+    plt <- plotEnrichment(pathway = pathway[[i]],
+    gseaParam = 1, ticksSize = 0.5, stats= rank) +
+    labs(title=i) + theme(plot.title = element_text(hjust = 0.5, face="bold"))
+    print(plt)
+}
+```
+
+#Pathways with a NES less than -1.5 are likely to exhibit strong negative enrichment in the analyzed data. Strong negative enrichment suggests that the genes within these pathways are more concentrated toward the bottom of the ranked list, indicating a potential downregulation or suppression of these pathways under the experimental conditions.
+
+
+name: "Shubhashini Sahu"
+student ID: "23103539"
+github link: "https://github.com/ShubhashiniSahu/RNA-SEQ-assign.git"
+##(~500 words) 
+#RNA-seq is a widely used method for measuring gene expression, particularly in the context of identifying differentially expressed genes (DEGs). These genes exhibit variations in expression between healthy and diseased tissues or treated and untreated samples, offering crucial insights into cancer biology. 
+#An example, taken from the above analysis,  is the ID3 gene, encoding a transcription factor, which has emerged as a significant player in cancer. Analyzing DEGs has revealed frequent dysregulation of ID3 across various cancer types, influencing vital cellular processes. ID3's interaction with key proteins regulates the cell cycle, a process often disrupted in cancer, potentially contributing to uncontrolled cell proliferation, a hallmark of tumorigenesis. While some studies propose ID3 as a tumor suppressor in specific contexts, it hinders bHLH factors involved in cell differentiation, suggesting a role in maintaining a less differentiated, more proliferative state in cancer cells. However, ID3's role in cancer is context-dependent, requiring further research to comprehend its mechanisms and potential as a therapeutic target or biomarker across different cancer types.
+#Among prominent DEGs associated with cancer is TP53, a tumor suppressor gene orchestrating cell cycle arrest, DNA repair, and apoptosis. TP53 mutations are prevalent in various cancers, facilitating uncontrolled cell proliferation by evading programmed cell death. The tumor microenvironment (TME) also significantly impacts cancer progression, with immune-related DEGs gaining attention. PD-L1, an immune checkpoint gene, is frequently overexpressed in cancer cells, enabling evasion of immune surveillance. Targeting PD-L1 with immune checkpoint inhibitors has proven successful in various cancers, emphasizing the therapeutic potential of understanding immune-related DEGs. Additionally, the MYC oncogene, a master regulator of cellular processes, is often overexpressed in cancer, promoting uncontrolled cell growth through effects on cell cycle progression, metabolism, and angiogenesis. The dysregulation of MYC across a range of cancers positions it as a promising target for therapeutic interventions.
+#In conclusion, the identification of DEGs in cancer biology provides valuable insights into the molecular mechanisms driving tumorigenesis. The intricate interplay between genetic and environmental factors, coupled with the dynamic tumor microenvironment, underscores the complexity of cancer biology and highlights the ongoing need for research to uncover new therapeutic targets.
+
+
+
+
+

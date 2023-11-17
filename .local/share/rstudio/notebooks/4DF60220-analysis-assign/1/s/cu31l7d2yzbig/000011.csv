@@ -1,0 +1,3 @@
+"0",""
+"0","rld_plt <- meanSdPlot(rld_counts, ranks=FALSE, plot=FALSE)"
+"0","rld_plt$gg + ggtitle(""Rlog Transformation"") + xlim(0,20)"

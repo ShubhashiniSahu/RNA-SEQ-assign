@@ -1,0 +1,29 @@
+"0","# to make tumour vs control re level the dds object reference level and redo the DESeq call"
+"0","dds$condition <- relevel(dds$condition, ref = ""control"")"
+"0","dds <- DESeq(dds)"
+"2","using pre-existing normalization factors
+"
+"2","estimating dispersions
+"
+"2","found already estimated dispersions, replacing these
+"
+"2","gene-wise dispersion estimates
+"
+"2","mean-dispersion relationship
+"
+"2","final dispersion estimates
+"
+"2","fitting model and testing
+"
+"0","# double check it worked"
+"0","resultsNames(dds)"
+"1","[1]"
+"1"," ""Intercept""                  "
+"1"," ""replicates_2_vs_1""          "
+"1"," ""replicates_3_vs_1""          "
+"1","
+"
+"1","[4]"
+"1"," ""condition_tumour_vs_control"""
+"1","
+"

@@ -1,0 +1,5 @@
+"0","mart <- useMart(biomart = ""ensembl"", dataset = ""hsapiens_gene_ensembl"")"
+"0",""
+"0","#The below code line is used to retrieve and display gene annotation information, specifically Ensembl transcript IDs and corresponding HGNC symbols, from an Ensembl database"
+"0","tx2gene <- getBM(attributes = c(""ensembl_transcript_id_version"", ""hgnc_symbol""), mart = mart, useCache = FALSE)"
+"0","head(tx2gene)"

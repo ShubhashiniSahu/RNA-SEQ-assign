@@ -1,0 +1,4 @@
+quant_dir <- "/home/rstudio"
+list.files(quant_dir)
+samples <- read.csv(paste0(quant_dir, "/samples.csv"), header=T, row.names = "samples", stringsAsFactors = T)
+samples

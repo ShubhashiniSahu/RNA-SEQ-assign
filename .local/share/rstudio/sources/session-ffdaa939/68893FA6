@@ -1,0 +1,28 @@
+{
+    "id": "68893FA6",
+    "path": "~/analysis-assign.Rmd",
+    "project_path": null,
+    "type": "r_markdown",
+    "hash": "3795552418",
+    "contents": "",
+    "dirty": true,
+    "created": 1699030108255.0,
+    "source_on_save": true,
+    "relative_order": 1,
+    "properties": {
+        "tempName": "Untitled1",
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "467,0",
+        "scrollLine": "463",
+        "ignored_words": "tumour\n"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1700237758,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1700237758104,
+    "read_only": false,
+    "read_only_alternatives": []
+}
